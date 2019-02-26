@@ -1,0 +1,88 @@
+https://www.w3.org/TR/trig/
+
+4.5 Grammar
+
+The EBNF used here is defined in XML 1.0 [EBNF-NOTATION]. Production labels consisting of a number and a final 'g' are unique to TriG. All Production labels consisting of only a number reference the production with that number in the Turtle grammar [TURTLE]. Production labels consisting of a number and a final 's', e.g. [60s], reference the production with that number in the document SPARQL 1.1 Query Language grammar [SPARQL11-QUERY].
+
+Notes:
+
+    A blank node label represents the same blank node throughout the TriG document.
+    Keywords in single quotes ( '@base', '@prefix', 'a', 'true', 'false') are case-sensitive. Keywords in double quotes ( "BASE", "PREFIX" "GRAPH" ) are case-insensitive.
+    Escape sequences markers \u, \U and those in ECHAR are case sensitive.
+    When tokenizing the input and choosing grammar rules, the longest match is chosen.
+    The TriG grammar is LL(1) and LALR(1) when the rules with uppercased names are used as terminals.
+    The entry point into the grammar is trigDoc.
+    In signed numbers, no white space is allowed between the sign and the number.
+    The [162s] ANON ::= '[' WS* ']' token allows any amount of white space and comments between []s. The single space version is used in the grammar for clarity.
+    The strings '@prefix' and '@base' match the pattern for LANGTAG, though neither "prefix" nor "base" are registered language subtags. This specification does not define whether a quoted literal followed by either of these tokens (e.g. "Z"@base) is in the TriG language.
+
+
+
+5. Parsing
+
+The RDF Concepts and Abstract Syntax [RDF11-CONCEPTS] specification defines three types of RDF Term: IRIs, literals and blank nodes. Literals are composed of a lexical form and an optional language tag [BCP47] or datatype IRI. An extra type, prefix, is used during parsing to map string identifiers to namespace IRIs. This section maps a string conforming to the grammar in section 4.5 Grammar to a set of triples by mapping strings matching productions and lexical tokens to RDF terms or their components (e.g. language tags, lexical forms of literals). Grammar productions change the parser state and emit triples.
+5.1 Parser State
+
+Parsing TriG requires a state of six items:
+
+    IRI baseURI — When the base production is reached, the second rule argument, IRIREF, is the base URI used for relative IRI resolution.
+    Map[prefix -> IRI] namespaces — The second and third rule arguments (PNAME_NS and IRIREF) in the prefixID production assign a namespace name (IRIREF) for the prefix (PNAME_NS). Outside of a prefixID production, any PNAME_NS is substituted with the namespace. Note that the prefix may be an empty string, per the PNAME_NS, production: (PN_PREFIX)? ":".
+    Map[string -> blank node] bnodeLabels — A mapping from string to blank node.
+    RDF_Term curSubject — The curSubject is bound to the subject production.
+    RDF_Term curPredicate — The curPredicate is bound to the verb production. If token matched was "a", curPredicate is bound to the IRI http://www.w3.org/1999/02/22-rdf-syntax-ns#type.
+    RDF_Term curGraph — The curGraph is bound to the label of the graph that is the destination of triples produced in parsing. When undefined, triples are destined for the default graph.
+
+5.2 RDF Term Constructors
+
+This table maps productions and lexical tokens to RDF terms or components of RDF terms listed in section 5. Parsing:
+production 	type 	procedure
+IRIREF 	IRI 	The characters between "<" and ">" are taken, with the numeric escape sequences unescaped, to form the unicode string of the IRI. Relative IRI resolution is performed per section 4.3 IRI References.
+PNAME_NS 	prefix 	When used in a prefixID or sparqlPrefix production, the prefix is the potentially empty unicode string matching the first argument of the rule is a key into the namespaces map.
+IRI 	When used in a PrefixedName production, the iri is the value in the namespaces map corresponding to the first argument of the rule.
+PNAME_LN 	IRI 	A potentially empty prefix is identified by the first sequence, PNAME_NS. The namespaces map MUST have a corresponding namespace. The unicode string of the IRI is formed by unescaping the reserved characters in the second argument, PN_LOCAL, and concatenating this onto the namespace.
+STRING_LITERAL_SINGLE_QUOTE 	lexical form	The characters between the outermost "'"s are taken, with numeric and string escape sequences unescaped, to form the unicode string of a lexical form.
+STRING_LITERAL_QUOTE 	lexical form	The characters between the outermost '"'s are taken, with numeric and string escape sequences unescaped, to form the unicode string of a lexical form.
+STRING_LITERAL_LONG_SINGLE_QUOTE 	lexical form	The characters between the outermost "'''"s are taken, with numeric and string escape sequences unescaped, to form the unicode string of a lexical form.
+STRING_LITERAL_LONG_QUOTE 	lexical form	The characters between the outermost '"""'s are taken, with numeric and string escape sequences unescaped, to form the unicode string of a lexical form.
+LANGTAG 	language tag	The characters following the @ form the unicode string of the language tag.
+RDFLiteral 	literal 	The literal has a lexical form of the first rule argument, String, and either a language tag of LANGTAG or a datatype IRI of iri, depending on which rule matched the input. If the LANGTAG rule matched, the datatype is rdf:langString and the language tag is LANGTAG. If neither a language tag nor a datatype IRI is provided, the literal has a datatype of xsd:string.
+INTEGER 	literal 	The literal has a lexical form of the input string, and a datatype of xsd:integer.
+DECIMAL 	literal 	The literal has a lexical form of the input string, and a datatype of xsd:decimal.
+DOUBLE 	literal 	The literal has a lexical form of the input string, and a datatype of xsd:double.
+BooleanLiteral 	literal 	The literal has a lexical form of the true or false, depending on which matched the input, and a datatype of xsd:boolean.
+BLANK_NODE_LABEL 	blank node 	The string matching the second argument, PN_LOCAL, is a key in bnodeLabels. If there is no corresponding blank node in the map, one is allocated.
+ANON 	blank node 	A blank node is generated.
+blankNodePropertyList	blank node 	A blank node is generated. Note the rules for blankNodePropertyList in the next section.
+collection 	blank node 	For non-empty lists, a blank node is generated. Note the rules for collection in the next section.
+IRI 	For empty lists, the resulting IRI is rdf:nil. Note the rules for collection in the next section.
+5.3 RDF Triples Construction
+
+A TriG document defines an RDF Dataset composed of one default graph and zero or more named graphs. Each graph is composed of a set of RDF triples.
+5.3.1 Output Graph
+
+The state curGraph is initially unset. It records the label of the graph for triples produced during parsing. If undefined, the default graph is used.
+
+The rule labelOrSubject sets both curGraph and curSubject (only one of these will be used).
+
+The following grammar production clauses set curGraph to be undefined, indicating the default graph:
+
+    The grammar production clause wrappedGraph in rule block.
+    The grammar production in rule triples2.
+
+The grammar production labelOrSubject predicateObjectList '.' unsets curGraph before handling predicateObjectLists in rule triplesOrGraph.
+5.3.2 Triple Output
+
+Each RDF triple produced is added to curGraph, or the default graph if curGraph is not set at that point in the parsing process.
+
+The subject production sets the curSubject. The verb production sets the curPredicate.
+
+Triples are produced at the following points in the parsing process and each RDF triple produced is added to the graph identified by curGraph.
+5.3.2.1 Triple Production
+
+Each object N in the document produces an RDF triple: curSubject curPredicate N.
+5.3.2.2 Property Lists
+
+Beginning the blankNodePropertyList production records the curSubject and curPredicate, and sets curSubject to a novel blank node B. Finishing the blankNodePropertyList production restores curSubject and curPredicate. The node produced by matching blankNodePropertyList is the blank node B.
+5.3.2.3 Collections
+
+Beginning the collection production records the curSubject and curPredicate. Each object in the collection production has a curSubject set to a novel blank node B and a curPredicate set to rdf:first. For each object objectn after the first produces a triple:objectn-1 rdf:rest objectn . Finishing the collection production creates an additional triple curSubject rdf:rest rdf:nil . and restores curSubject and curPredicate The node produced by matching collection is the first blank node B for non-empty lists and rdf:nil for empty lists.
